@@ -56,6 +56,12 @@ GOOGLE_MIME_TYPES_MAPPING = {
     "application/vnd.google-apps.spreadsheet": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 }
 
+GOOGLE_DRIVE_DOCUMENT_MIME_TYPES = (
+    f"mimeType='{GOOGLE_MIME_TYPES_MAPPING["application/vnd.google-apps.document"]}' or "
+    f"mimeType='{GOOGLE_MIME_TYPES_MAPPING["application/vnd.google-apps.presentation"]}' or "
+    f"mimeType='{GOOGLE_MIME_TYPES_MAPPING["application/vnd.google-apps.spreadsheet"]}'"
+)
+
 
 class SyncCursorEmpty(Exception):
     """Exception class to notify that incremental sync can't run because sync_cursor is empty."""
@@ -172,9 +178,9 @@ class GoogleDriveClient(GoogleServiceAccountClient):
             else DRIVE_ITEMS_FIELDS
         )
         if last_sync_time is None:
-            list_query = "trashed=false"
+            list_query = f"trashed=false and ({GOOGLE_DRIVE_DOCUMENT_MIME_TYPES})"
         else:
-            list_query = f"trashed=true or modifiedTime > '{last_sync_time}' or createdTime > '{last_sync_time}'"
+            list_query = f"(trashed=true or modifiedTime > '{last_sync_time}' or createdTime > '{last_sync_time}') and ({GOOGLE_DRIVE_DOCUMENT_MIME_TYPES})"
         async for file in self.api_call_paged(
             resource="files",
             method="list",
@@ -209,17 +215,17 @@ class GoogleDriveClient(GoogleServiceAccountClient):
 
         if fetch_permissions and last_sync_time:
             files_fields = DRIVE_ITEMS_FIELDS_WITH_PERMISSIONS
-            list_query = f"(trashed=true or modifiedTime > '{last_sync_time}' or createdTime > '{last_sync_time}') and 'me' in writers"
+            list_query = f"(trashed=true or modifiedTime > '{last_sync_time}' or createdTime > '{last_sync_time}') and 'me' in writers and ({GOOGLE_DRIVE_DOCUMENT_MIME_TYPES})"
         elif fetch_permissions and not last_sync_time:
             files_fields = DRIVE_ITEMS_FIELDS_WITH_PERMISSIONS
             # Google Drive API required write access to fetch file's permissions
-            list_query = "trashed=false and 'me' in writers"
+            list_query = f"trashed=false and 'me' in writers and ({GOOGLE_DRIVE_DOCUMENT_MIME_TYPES})"
         elif not fetch_permissions and last_sync_time:
             files_fields = DRIVE_ITEMS_FIELDS
-            list_query = f"trashed=true or modifiedTime > '{last_sync_time}' or createdTime > '{last_sync_time}'"
+            list_query = f"(trashed=true or modifiedTime > '{last_sync_time}' or createdTime > '{last_sync_time}') and ({GOOGLE_DRIVE_DOCUMENT_MIME_TYPES})"
         else:
             files_fields = DRIVE_ITEMS_FIELDS
-            list_query = "trashed=false"
+            list_query = f"trashed=false and ({GOOGLE_DRIVE_DOCUMENT_MIME_TYPES})"
 
         async for file in self.api_call_paged(
             resource="files",
@@ -501,7 +507,8 @@ class GoogleDriveDataSource(BaseDataSource):
 
     @cached_property
     def google_admin_directory_client(self):
-        """Initialize and return the GoogleAdminDirectoryClient
+        """
+        Initialize and return the GoogleAdminDirectoryClient
 
         Returns:
             GoogleAdminDirectoryClient: An instance of the GoogleAdminDirectoryClient.
