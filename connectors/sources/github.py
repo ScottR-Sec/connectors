@@ -1872,11 +1872,18 @@ class GitHubDataSource(BaseDataSource):
             )
 
     async def _fetch_last_commit_timestamp(self, repo_name, path):
-        commit, *_ = await self.github_client.get_github_item(  # pyright: ignore
+        commits = await self.github_client.get_github_item(  # pyright: ignore
             resource=self.github_client.endpoints["COMMITS"].format(
                 repo_name=repo_name, path=path
             )
         )
+        if not commits:
+            self._logger.warning(
+                f"Could not fetch last commit for repo '{repo_name}' and path '{path}'. Skipping file."
+            )
+            return None
+
+        commit = commits[0]
         return commit["commit"]["committer"]["date"]
 
     async def _format_file_document(self, repo_object, repo_name, schema):
@@ -1888,6 +1895,9 @@ class GitHubDataSource(BaseDataSource):
             last_commit_timestamp = await self._fetch_last_commit_timestamp(
                 repo_name=repo_name, path=repo_object["path"]
             )
+            if last_commit_timestamp is None:
+                return None
+
             repo_object.update(
                 {
                     "_timestamp": last_commit_timestamp,
