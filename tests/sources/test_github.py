@@ -1586,6 +1586,67 @@ async def test_fetch_files():
 
 
 @pytest.mark.asyncio
+async def test_fetch_files_recursive():
+    MOCK_ROOT_TREE_RECURSIVE = {
+        "sha": "root_sha",
+        "tree": [
+            {
+                "path": "file1.md",
+                "mode": "100644",
+                "type": "blob",
+                "sha": "file1_sha",
+                "size": 10,
+                "url": "url1",
+            },
+            {
+                "path": "subdir",
+                "mode": "040000",
+                "type": "tree",
+                "sha": "subdir_sha",
+                "url": "url_subdir",
+            },
+        ],
+    }
+    MOCK_SUBDIR_TREE_RECURSIVE = {
+        "sha": "subdir_sha",
+        "tree": [
+            {
+                "path": "file2.md",
+                "mode": "100644",
+                "type": "blob",
+                "sha": "file2_sha",
+                "size": 20,
+                "url": "url2",
+            }
+        ],
+    }
+
+    async def mock_get_item_side_effect(resource):
+        if "git/trees/main" in resource:
+            return MOCK_ROOT_TREE_RECURSIVE
+        elif "git/trees/subdir_sha" in resource:
+            return MOCK_SUBDIR_TREE_RECURSIVE
+        elif "commits" in resource:
+            return MOCK_COMMITS
+        else:
+            return {}
+
+    async with create_github_source() as source:
+        source.github_client.get_github_item = AsyncMock(
+            side_effect=mock_get_item_side_effect
+        )
+
+        files = []
+        async for document, _ in source._fetch_files("demo_repo", "main"):
+            files.append(document)
+
+        assert len(files) == 2
+        paths = {f["path"] for f in files}
+        assert "file1.md" in paths
+        assert "subdir/file2.md" in paths
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "exception",
     [UnauthorizedException, ForbiddenException],

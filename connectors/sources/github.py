@@ -1904,23 +1904,50 @@ class GitHubDataSource(BaseDataSource):
             document["_id"] = f"{repo_name}/{repo_object['path']}"
             return document, repo_object
 
+    async def _traverse_tree(self, repo_name, tree_sha, current_path="", depth=0):
+        MAX_RECURSION_DEPTH = 10
+        if depth >= MAX_RECURSION_DEPTH:
+            self._logger.warning(
+                f"Reached max recursion depth of {MAX_RECURSION_DEPTH} for repo {repo_name} at path {current_path}"
+            )
+            return
+
+        tree_url_template = "/repos/{repo_name}/git/trees/{tree_sha}"
+        if self.github_client.base_url != "https://api.github.com":
+            tree_url_template = "/api/v3" + tree_url_template
+
+        tree_url = tree_url_template.format(repo_name=repo_name, tree_sha=tree_sha)
+
+        tree = await self.github_client.get_github_item(resource=tree_url)
+
+        for item in tree.get("tree", []):
+            full_path = f"{current_path}/{item['path']}" if current_path else item["path"]
+
+            item_with_full_path = item.copy()
+            item_with_full_path["path"] = full_path
+
+            if item_with_full_path["type"] == BLOB:
+                if document_tuple := await self._format_file_document(
+                    repo_object=item_with_full_path,
+                    repo_name=repo_name,
+                    schema=FILE_SCHEMA,
+                ):
+                    yield document_tuple
+            elif item_with_full_path["type"] == "tree":
+                async for document_tuple in self._traverse_tree(
+                    repo_name, item_with_full_path["sha"], full_path, depth + 1
+                ):
+                    yield document_tuple
+
     async def _fetch_files(self, repo_name, default_branch):
         self._logger.info(
             f"Fetching files from repo: '{repo_name}' (branch: '{default_branch}')"
         )
         try:
-            file_tree = await self.github_client.get_github_item(
-                resource=self.github_client.endpoints["TREE"].format(
-                    repo_name=repo_name, default_branch=default_branch
-                )
-            )
-
-            for repo_object in file_tree.get("tree", []):
-                if repo_object["type"] == BLOB:
-                    if document := await self._format_file_document(
-                        repo_object=repo_object, repo_name=repo_name, schema=FILE_SCHEMA
-                    ):
-                        yield document
+            async for document in self._traverse_tree(
+                repo_name, default_branch, current_path="", depth=0
+            ):
+                yield document
         except UnauthorizedException:
             raise
         except ForbiddenException:
