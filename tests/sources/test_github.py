@@ -1697,6 +1697,20 @@ async def test_fetch_files_when_error_occurs(exception):
 
 
 @pytest.mark.asyncio
+async def test_fetch_files_with_empty_commit():
+    async with create_github_source() as source:
+        with patch.object(
+            source.github_client,
+            "get_github_item",
+            side_effect=[MOCK_TREE, []],  # Return empty list for commits
+        ):
+            files = []
+            async for document in source._fetch_files("demo_repo", "main"):
+                files.append(document)
+            assert files == []
+
+
+@pytest.mark.asyncio
 async def test_get_docs():
     expected_response = [
         PUBLIC_REPO,
